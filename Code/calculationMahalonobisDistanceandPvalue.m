@@ -11,7 +11,7 @@ function [s,p]=calculationMahalonobisDistanceandPvalue(paramMatrixTarget,paramMa
 %
 %     flagUseAsIs          : 1 to use parameter matrices as input, 0 to
 %                            reformat them first. 
-%                            Optional. Default: 0.
+%                            Optional. Default: 1.
 %
 %
 %   OUTPUT:
@@ -23,7 +23,9 @@ function [s,p]=calculationMahalonobisDistanceandPvalue(paramMatrixTarget,paramMa
 %
 % Luciana de Oliveira, July 2016
 % Khuloud Jaqaman, February 2025: added flagUseAsIs option.
-
+%
+% NOTE: Currently function works only for flagUseAsIs = 1.
+%
 % Copyright (C) 2025, Jaqaman Lab - UTSouthwestern
 %
 % This file is part of FISIK.
@@ -45,6 +47,8 @@ function [s,p]=calculationMahalonobisDistanceandPvalue(paramMatrixTarget,paramMa
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% reform of the parameters and calculation of theta and v
 
+flagUseAsIs = 1;
+
 if flagUseAsIs
     
     thetaTarget = nanmean(paramMatrixTarget,2);
@@ -54,8 +58,8 @@ if flagUseAsIs
 
 else
 
-[thetaTarget,thetaProbe,vTarget,vProbe] = ...
-    calcThetaVaramCovMatrixForMahalonobisDistance(paramMatrixTarget,paramMatrixProbe);
+% [thetaTarget,thetaProbe,vTarget,vProbe] = ...
+%     calcThetaVaramCovMatrixForMahalonobisDistance(paramMatrixTarget,paramMatrixProbe);
 
 end
 
