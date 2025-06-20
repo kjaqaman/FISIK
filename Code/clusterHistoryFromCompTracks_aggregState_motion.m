@@ -1,24 +1,24 @@
-function [clustHistoryAll,clustHistoryMerged] = ...
-    clusterHistoryFromCompTracks_aggregState_motion(tracksAggregStateDef,tracksAggregStateAlt,diffusionAnalysisAlt)
-%CLUSTERHISTORYFROMCOMPTRACKS_AGGREGSTATE determines the size and lifetime of all clusters that formed during a simulation
+function [clustHistoryAll,clustHistoryMerged,followerFracAll,...
+    followerFracMerged] = clusterHistoryFromCompTracks_aggregState_motion(...
+    tracksAggregStateDef,tracksAggregStateAlt,diffusionAnalysisAlt)
+%CLUSTERHISTORYFROMCOMPTRACKS_AGGREGSTATE_MOTION determines the size and lifetime of all clusters that formed during a simulation, with motion properties if supplied
 %
-%   The function uses the information contained in seqOfEvents and
-%   aggregState, two fields from the output of aggregStateFromCompTracks,
-%   in the field defaultFormatTracks.
-%
-%   SYNOPSIS: [clustHistoryAll,clustHistoryMerged] = ...
-%    clusterHistoryFromCompTracks_aggregState(tracksAggregStateDef,infoTime)
+%   SYNOPSIS: [clustHistoryAll,clustHistoryMerged,followerFracAll,...
+%    followerFracMerged] = clusterHistoryFromCompTracks_aggregState_motion(...
+%    tracksAggregStateDef,tracksAggregStateAlt,diffusionAnalysisAlt)
 %
 %   INPUT:
-%       tracksAggregStateDef:
-%                         the structure of track information including
-%                         aggregState in default format.
-%
-%
-%       diffusionAnalysis: can be either
+%       tracksAggregStateDef: Tracks as output by function
+%                             "aggregStateFromCompTracksMIQP", in default
+%                             format.
+%       tracksAggregStateAlt: Tracks as output by function
+%                             "aggregStateFromCompTracksMIQP", in
+%                             alternative format.
+%       diffusionAnalysisAlt: Diffusion mode analysis output, as run on
+%                             tracks in alternative format.
 %
 %   OUTPUT:
-%       clustHistoryAll:  a 1D cell with rows = number of tracks in
+%       clustHistoryAll:  1D cell with rows = number of tracks in
 %                         compTracks.
 %                         Each entry contains a clusterHistory table for a
 %                         track in compTracks. In this version cluster
@@ -29,9 +29,9 @@ function [clustHistoryAll,clustHistoryMerged] = ...
 %                         event. The 9 colums give the following information:
 %                         1) Track segment number in default format.
 %                         2) Cluster size.
-%                         3) Start time (same units as input timeStep etc).
-%                         4) End time (same units as input timeStep etc).
-%                         5) Lifetime (same units as input timeStep etc).
+%                         3) Start time (frames).
+%                         4) End time (frames).
+%                         5) Lifetime (frames).
 %                         6) Event that started the cluster
 %                           (1 = dissociation, 2 = association, 0 = unknown/appearance).
 %                         7) Event that ended the cluster
@@ -41,31 +41,36 @@ function [clustHistoryAll,clustHistoryMerged] = ...
 %                        10) Diffusion mode.
 %                        11) Diffusion coefficient.
 %
-%       clustHistoryMerged: Same information as in clustHistoryAll but with
+%       clustHistoryMerged: Same information as in clustHistoryAll, but with
 %                         all cells merged into one 2D array, i.e.
 %                         individual track information is lost.
 %
-%   Robel Yirdaw, 09/19/13
-%       modified, 02/20/14
-%       modified, 04/08/14
-%       modified, 11/18/14
+%       followerFracAll: 1D cell array, effectively continuing clustHistoryAll.
+%                        Each entry contains the fraction of time that
+%                        follower is present for the corresponding cluster
+%                        in clustHistoryAll.
+%
+%       followerFracMerges: Same as followerFracAll, but with all cells
+%                        merged into one array. effectively continuing
+%                        clusterHistoryMerged.
+%
+%
+%   Robel Yirdaw, Sept. 2013
 %       modified, May/June 2015 (Khuloud Jaqaman)
 %       modified, September/October 2016 (Luciana de Oliveira)
 %       modified, May 2018 (Tony Vega)
-%       modified, October 2018 (Luciana de Oliveira)- if an event start in
-%       the first frame, it has a NaN in the event starting the segment. In                                                                                          -
-%       the same way if it is ended in the last frame.                                                                                                               -
-%       modified, October 2018 (Luciana de Oliveira)- now the event that                                                                                             -
-%       start/end and segment is completly determined from seqOfEvents
-%       modified, November 2018 (Luciana de Oliveira)-incorporate information
+%       modified, October 2018 (Luciana de Oliveira) 
+%       modified, November 2018 (Luciana de Oliveira) - incorporate information
 %       of segments from alternative format
+%       modified, July 2019 (Khuloud Jaqaman) - add follower information
+%       for master/follower analysis
+%
 % *** NOTE (KJ):
 %       As a result of modifications, columns in output have been
 %       reshuffled. Thus output is not backward compatible with Robel's
 %       functions, unless the latter are modified accordingly.
 %
-%
-% Copyright (C) 2019, Jaqaman Lab - UTSouthwestern
+% Copyright (C) 2025, Jaqaman Lab - UTSouthwestern
 %
 % This file is part of FISIK.
 % 
@@ -81,12 +86,17 @@ function [clustHistoryAll,clustHistoryMerged] = ...
 % 
 % You should have received a copy of the GNU General Public License
 % along with FISIK.  If not, see <http://www.gnu.org/licenses/>.
-% 
-% 
+
 
 %% Input
 
-%Nothing to do
+%check follower information
+if nargin > 1 && isfield(tracksAggregStateAlt,'followerInfo')
+    followerFlag = 1;
+else
+    followerFlag = 0;
+end
+    
 
 %% Cluster history collection
 
@@ -101,29 +111,34 @@ function [clustHistoryAll,clustHistoryMerged] = ...
 
 %Cluster history from all compTracks will be saved
 clustHistoryAll = cell(numCompTracks,1);
-
+followerFracAll = cell(numCompTracks,1);
 
 %For each compTrack
-for compTrackIter=1:numCompTracks
+for compTrackIter = 1 : numCompTracks
     
     %seqOfEvents for current compTrack
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %040814 - now passing defaultFormatTracks directly for memory reasons.
     seqOfEvents = tracksAggregStateDef(compTrackIter,1).seqOfEvents;
 
-    if nargin>1 % add diffusion information
+    if nargin>1 % add alternative format information
+        
         %get seqOfEvents in the alternative format
         seqOfEventsAlt = tracksAggregStateAlt(compTrackIter,1).seqOfEvents;
         
         %load alt2defSegCorrenpondence
         alt2defSegmentCorrespond=tracksAggregStateAlt(compTrackIter).alt2defSegmentCorrespond;
+        
     end
     
     if nargin>2 % add diffusion information
+        
         %get diffusion stuff, right now assuming diff Mode, can fix later
         diffMode = diffusionAnalysisAlt(compTrackIter).diffMode;
+        
         % get diffusion coefficient
         diffCoef=diffusionAnalysisAlt(compTrackIter).diffCoef;
+        
     end
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -150,7 +165,7 @@ for compTrackIter=1:numCompTracks
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Modification Luciana de Oliveira, 10/2016
     
-    % Mofication Luciana de Oliveira 12/2017-- add all coluns with
+    % Mofication Luciana de Oliveira 12/2017-- add all columns with
     % information about the cluster, before there was only some.
     
     %If the seqOfEvents has only one track, I need to account this cluster
@@ -168,35 +183,46 @@ for compTrackIter=1:numCompTracks
                 clustHistoryTemp = NaN(1,11);
         end
         
-        % track number
-        clustHistoryTemp(1,1)=seqOfEvents(1,3);
+        %segment number
+        clustHistoryTemp(1,1) = 1;
         
         %cluster size
-        clustHistoryTemp(1,2)= aggregState(seqOfEvents(1,1) - frameShift + 1,...
+        clustHistoryTemp(1,2) = aggregState(seqOfEvents(1,1) - frameShift + 1,...
             seqOfEvents(1,1) - frameShift + 1);
         
         %start time
-        clustHistoryTemp(1,3)=seqOfEvents(1,1);
+        clustHistoryTemp(1,3)= seqOfEvents(1,1);
         
         %end time
-        clustHistoryTemp(1,4)=seqOfEvents(2,1);
+        clustHistoryTemp(1,4) = seqOfEvents(2,1);
         
         %Cluster lifetime
-        clustHistoryTemp(1,5) = ...
-            clustHistoryTemp(1,4) - clustHistoryTemp(1,3)+1;
+        clustHistoryTemp(1,5) = clustHistoryTemp(1,4) - clustHistoryTemp(1,3) + 1;
         
         %Type of event starting cluster (1=dissoc., 2=assoc., 0=unknown)
         %Modification LRO 20181030
-        clustHistoryTemp(1,6) = ~isnan(seqOfEvents(1,4))*seqOfEvents(1,2);
+        clustHistoryTemp(1,6) = 0;
 
         %Type of event ending cluster (1=dissoc., 2=assoc., 0=unknown)
-        clustHistoryTemp(1,7) = ~isnan(seqOfEvents(2,4))*seqOfEvents(2,2);
+        clustHistoryTemp(1,7) = 0;
         
-        if nargin>1 % add segment number alternative format
+        if nargin>1 % add segment number in alternative format
             
-            %sergment number alternative format, in this case is the same as
+            %segment number in alternative format, in this case it is the same as
             %the default format
-            clustHistoryTemp(1,9) = clustHistoryTemp(1,1);
+            clustHistoryTemp(1,9) = 1;
+            
+            %get follower information if available
+            if followerFlag
+                followerInfoTmp = tracksAggregStateAlt(compTrackIter,1).followerInfo;
+                
+                if followerInfoTmp(5) >= 0.1
+                    followerFracAll{compTrackIter,1} = followerInfoTmp(1) / clustHistoryTemp(1,5);
+                else
+                    followerFracAll{compTrackIter,1} = 0;
+                end
+                
+            end
             
         end
         
@@ -230,13 +256,13 @@ for compTrackIter=1:numCompTracks
         % others.
         
         %Determine beginning segments
-        trackIndexBegin=find(isnan(seqOfEvents(:,4)) & seqOfEvents(:,2)==1);
+        trackIndexBegin = find(isnan(seqOfEvents(:,4)) & seqOfEvents(:,2)==1);
         
         %Determine changing segments
-        trackIndexChanging= find(~isnan(seqOfEvents(:,4)));
+        trackIndexChanging = find(~isnan(seqOfEvents(:,4)));
         
         %Determine ending segments
-        trackIndexEnd=find(isnan(seqOfEvents(:,4)) & seqOfEvents(:,2)==2);
+        trackIndexEnd = find(isnan(seqOfEvents(:,4)) & seqOfEvents(:,2)==2);
         
         %total number of segments in clustHistory
         totSegments = length(trackIndexBegin) + (lastEventIter-firstEventIter+1) + ...
@@ -456,17 +482,17 @@ for compTrackIter=1:numCompTracks
         %necessary to remove rows that are not filled with values
         
         %remove rows with all NaNs
-        iRowNaN= sum(isnan(clustHistoryTemp),2)==size(clustHistoryTemp,2);
+        iRowNaN = sum(isnan(clustHistoryTemp),2)==size(clustHistoryTemp,2);
         clustHistoryTemp(iRowNaN,:)=[];
         
         % 2016/11/01 LRO: find the end of the segment if it is in the tracks
         % that are in the end of the frames.
         
-        segmentsNotEnd=find(isnan(clustHistoryTemp(:,4)));
+        segmentsNotEnd = find(isnan(clustHistoryTemp(:,4)));
         
-        for segIndex=1:length(segmentsNotEnd)
+        for segIndex = 1 : length(segmentsNotEnd)
             
-            segmentEnd=find(clustHistoryTemp(segmentsNotEnd(segIndex),1)==seqOfEvents(trackIndexEnd,3));
+            segmentEnd = find(clustHistoryTemp(segmentsNotEnd(segIndex),1)==seqOfEvents(trackIndexEnd,3));
             
             if ~isempty(segmentEnd)
                 clustHistoryTemp(segmentsNotEnd(segIndex),4)=seqOfEvents(trackIndexEnd(segmentEnd(end)),1);
@@ -481,7 +507,7 @@ for compTrackIter=1:numCompTracks
         
         %%%%%%%%%%%%%%%%%%%%%%%%% modification LRO
         %%%% calculate life time for those that still don't have this value
-        clustHistoryTemp(:,5)=clustHistoryTemp(:,4)-clustHistoryTemp(:,3)+1;
+        clustHistoryTemp(:,5) = clustHistoryTemp(:,4)-clustHistoryTemp(:,3)+1;
         
         % % % %
         % % % %         %%%% here is the addition to avoid lifetime=0 coming from old version
@@ -501,14 +527,14 @@ for compTrackIter=1:numCompTracks
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % optional information
         
-        if nargin>1 % add sergment number alternative format
+        if nargin>1 % add segment number in alternative format
             
             % initialize alternative segments as the copy of default
-            clustHistoryTemp(:,9)=clustHistoryTemp(:,1);
+            clustHistoryTemp(:,9) = clustHistoryTemp(:,1);
             
             % find the alternative segment number equivalent to the segment
             % in the default format
-            for indexSegments=1:size(clustHistoryTemp,1)
+            for indexSegments = 1 : size(clustHistoryTemp,1)
                 
                 % take segment number and time start from the clustHistory
                 % (default format)
@@ -528,8 +554,8 @@ for compTrackIter=1:numCompTracks
                     
                     % use time start to find the segment equivalent and
                     % segment number in the alternative format to check the
-                    % valeu in the alternative format
-                    for indexAlt=1:length(segAltNumber)
+                    % value in the alternative format
+                    for indexAlt = 1 : length(segAltNumber)
                         % need to have the difference for merges and splits
                         %it is a merge
                         
@@ -556,13 +582,37 @@ for compTrackIter=1:numCompTracks
                     end
                     
                 end
+                
+            end
+            
+            %number of rows in cluster history for this compound track
+            totSegNum = size(clustHistoryTemp,1);
+            
+            %get follower information if available
+            if followerFlag
+                
+                followerFracTemp = zeros(totSegNum,1);
+                followerInfoTmp = tracksAggregStateAlt(compTrackIter,1).followerInfo;
+                
+                for indexSegments = 1 : totSegNum
+                    altFormatSegIndx = clustHistoryTemp(indexSegments,9);
+                    
+                    if followerInfoTmp(altFormatSegIndx,5) >= 0.1
+                        followerFracTemp(indexSegments,1) = ...
+                            followerInfoTmp(altFormatSegIndx,1) / clustHistoryTemp(indexSegments,5);
+                    end
+                    
+                end
+                
+                followerFracAll{compTrackIter,1} = followerFracTemp;
+                
             end
             
         end %(if nargin>1)
         
         if nargin>2 % add diffusion information
             
-            for indexSegments=1:size(clustHistoryTemp,1)
+            for indexSegments = 1 : totSegNum
                 % diffusion mode
                 clustHistoryTemp(indexSegments,10) = diffMode(clustHistoryTemp(indexSegments,9));
                 % diffusion coefficient
@@ -582,10 +632,6 @@ for compTrackIter=1:numCompTracks
 end
 
 clustHistoryMerged = cat(1,clustHistoryAll{:,1});
+followerFracMerged = cat(1,followerFracAll{:,1});
 
 end
-
-
-
-
-
